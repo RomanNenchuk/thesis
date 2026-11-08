@@ -1,0 +1,11 @@
+# Environments
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+
+# Generated artifacts (embeddings, UMAP projections, fitted models): reproducible via notebooks/eda.ipynb
+artifacts/*
+!artifacts/.gitkeep
+legacy/artifacts/
+*.joblib
+*.npy
