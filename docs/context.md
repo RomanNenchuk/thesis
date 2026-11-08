@@ -1,4 +1,4 @@
-# LinkUp thesis: revised plan (as of 2026-11-01)
+# LinkUp thesis: revised plan (as of 2026-11-08)
 
 Project: bachelor thesis (Computer Science, Ivan Franko National University of Lviv), built on the LinkUp app (social network with geo-tagged posts).
 Title: *"Research of methods and tools for intelligent analysis of spatially distributed data in social services"*.
@@ -17,7 +17,12 @@ Data: Kaggle `yachaymarketing/text-coordinates-regions` (multilingual geo-tagged
 - **Experiments:**
   - MiniLM + UMAP + KMeans is stable at NMI ≈ 0.29–0.31 and clusters follow topic rather than language.
   - UMAP `n_components` (5/15/30) and `n_neighbors` (15/30/50) barely matter, so the config is fixed at **5D, nn 50**.
-  - HDBSCAN scores a higher NMI (0.38–0.49) but discards about 50% of posts, so it is not comparable with KMeans yet.
+  - HDBSCAN scored a higher NMI (0.38–0.49) but discards about 50% of posts.
+- **Step 1, fair KMeans vs HDBSCAN (done):**
+  - On the posts HDBSCAN keeps, KMeans with the same k scores the same (NMI gap ≤ 0.023). The earlier HDBSCAN advantage was a selection effect: the kept posts are simply easier.
+  - On all gold posts (HDBSCAN noise assigned to the nearest clustered neighbours), the methods are equal in NMI (gap ≤ 0.014). HDBSCAN has a higher ARI only at the finest partitions (k = 181 and 96), where ARI is very low.
+  - HDBSCAN marks non-topical posts as noise somewhat more often than topical ones (about +0.05 to +0.12; for UMAP 5D, nn 50: 0.47–0.56 vs 0.58–0.63). It still discards about half of the topical posts, so it is a weak junk filter (roughly four fifths of its noisy gold posts are topical, rough estimate).
+  - Verdict: the two methods are tied on topic quality, so the choice rests on other criteria (see section 2).
 
 ---
 
@@ -25,7 +30,10 @@ Data: Kaggle `yachaymarketing/text-coordinates-regions` (multilingual geo-tagged
 
 - **Topic quality has a ceiling.** The gold topics are fuzzy, and NMI differences under about 0.01 on roughly 1.7k dev posts are noise. Don't chase NMI.
 - **UMAP tuning is closed.**
-- **HDBSCAN noise is the main open question,** and it matters for the spatial part too.
+- **KMeans vs HDBSCAN is tied on quality, so the primary clusterer is not fixed yet.** Both stay as candidates until the spatial slice (step 2).
+  - HDBSCAN: no preset k (k is unknown in advance), can reject posts without a topic; but it discards about half of the posts (mostly topical ones), `min_cluster_size` still has to be chosen, and a way to assign a topic to a new post must be checked.
+  - KMeans: covers every post and has a simple inference path; but k is arbitrary (no best k in the sweep) and it tends to produce clusters of similar size.
+  - Current preference: HDBSCAN, with noise posts assigned to the nearest cluster when full coverage is needed.
 - **The spatial part hasn't started,** although the thesis title is about it. A thin spatial slice moves earlier.
 - **Dropped or demoted:** Optuna, the 10k/50k/100k size ablation, the word-count threshold check, BERTopic and spaCy (stretch at most), joint text+coordinates clustering (stretch).
 
@@ -33,17 +41,15 @@ Data: Kaggle `yachaymarketing/text-coordinates-regions` (multilingual geo-tagged
 
 ## 3. Next steps
 
-### Step 1. Fair KMeans vs HDBSCAN (1–2 days)
-- Score KMeans on exactly the posts HDBSCAN keeps.
-- Add an HDBSCAN variant that assigns noise posts to the nearest cluster, so both are scored on all gold posts.
-- Compare at similar cluster counts (about 30–50).
-- Pick the primary clusterer for everything after this.
+### Step 1. Fair KMeans vs HDBSCAN: DONE
+Results are in section 1. The primary clusterer is decided after step 2.
 
 ### Step 2. Spatial feasibility slice (1–2 days)
 - Choose 2–3 dense cities and build an H3 grid (resolution 8–9).
-- On one city, run location quotient (LQ) and a permutation test with the current KMeans labels.
+- On one city, run location quotient (LQ) and a permutation test. Run it with both label sets (KMeans at k ≈ 30–50 and HDBSCAN with noise assigned), and compare which one gives more meaningful topic concentrations.
 - Check how many posts fall in each cell and whether any signal appears.
 - The 100k sample is global and probably too sparse per city. If so, embed all posts from the chosen cities and assign topics with `UMAP.transform` plus the fitted clusterer.
+- Pick the primary clusterer after this step.
 
 ### Step 3. Representation comparison (3–5 days)
 - Compare TF-IDF+SVD, fastText and multilingual-e5-base against MiniLM through the same pipeline (UMAP 5D/nn50, then the chosen clusterer).
@@ -59,6 +65,11 @@ By now the spatial slice shows whether the spatial result is interesting.
 - With vs without boilerplate.
 - With vs without UMAP.
 - Name the best clusters (LLM plus a manual check).
+- **Optional: non-topical filter.** HDBSCAN noise is a weak detector of posts without a topic, so test a dedicated one instead:
+  - logistic regression on MiniLM embeddings, topical vs non-topical (`reaction_chat`, `unclear_other`), 5-fold CV on the dev split;
+  - report AUC, precision and recall (only about 340 non-topical dev posts, so the estimate is noisy; the boundary between the classes is fuzzy);
+  - if it works, filter non-topical posts first and cluster the rest, then compare with the unfiltered pipeline;
+  - small and cheap, so it can be skipped if time is short. Do not touch the `test` split.
 
 ### Step 6. Full spatial part
 - Compare naive density, LQ and Getis-Ord Gi* hotspots.
@@ -78,7 +89,7 @@ Run the 1–2 chosen configs on the `test` split once. Don't touch it before thi
 
 ## 4. Writing
 
-Write Data, Methods and Evaluation now, and Results as steps 1–6 finish.
+Write Data, Methods and Evaluation now, and Results as steps 1–6 finish. Step 1 already gives a result section: the fair comparison and the noise analysis.
 
 ## 5. Minimum viable thesis
 
@@ -88,6 +99,7 @@ Steps 1–3, a simplified step 6 (one city, LQ + permutation test), step 7 and a
 
 - LLM gold labels were not manually verified, only smoke test; the 16-topic taxonomy is fuzzy.
 - The boilerplate regex filter was not checked for precision; unflagged near-duplicates remain (roughly 1% of the sample, rough estimate from a small manual look).
-- Dev split only (about 1.7k topical posts), one UMAP seed and one KMeans seed per grid cell.
+- Dev split only (about 1.7k topical posts, about 340 non-topical), one UMAP seed per configuration, one KMeans seed per grid cell.
+- The noise analysis reuses the same dev posts across all UMAP/HDBSCAN settings, so its rows are not independent evidence.
 - Data are 2021 tweets, not LinkUp posts (domain shift).
 - Language entropy is normalised per cluster and capped by the dataset's language imbalance.

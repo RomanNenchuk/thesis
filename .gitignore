@@ -9,3 +9,6 @@ artifacts/*
 legacy/artifacts/
 *.joblib
 *.npy
+
+# Claude Code instructions (local only)
+CLAUDE.md
