@@ -12,3 +12,6 @@ legacy/artifacts/
 
 # Claude Code instructions (local only)
 CLAUDE.md
+
+# Large retired data (over GitHub 100 MB-ish limit risk)
+legacy/data/spatial_pool.csv
